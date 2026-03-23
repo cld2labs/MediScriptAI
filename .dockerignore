@@ -1,0 +1,33 @@
+# Standard ignores (production image / build context)
+node_modules
+npm-debug.log
+README.md
+.next
+.git
+.env*.local
+
+# Dependencies & logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Build outputs
+out
+build
+dist
+
+# Env & secrets (keep examples for reference only)
+.env
+.env.*
+!.env.example
+
+# Docs & OS
+*.md
+.DS_Store
+
+# IDE & tools
+.cursor
+.vscode
+.idea
+*.log
