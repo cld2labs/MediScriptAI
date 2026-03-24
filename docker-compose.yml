@@ -1,0 +1,67 @@
+# =============================================================================
+# MediScript AI — single source of container environment configuration
+# =============================================================================
+# Do not use .env files inside frontend/ or backend/. Pass configuration here
+# via the `environment` section below, and/or use shell substitution:
+#   export OPENAI_API_KEY=sk-...   # required for real OpenAI calls
+#   docker compose up --build
+#
+# ------------------------------------------------------------------------------
+# Variables (all consumed by services through the environment block below)
+# ------------------------------------------------------------------------------
+#
+# OPENAI_API_KEY (required for processing)
+#   OpenAI API key for Whisper transcription and GPT-4o chat completions.
+#
+# OPENAI_WHISPER_MODEL (optional, default whisper-1)
+#   Speech-to-text model name.
+#
+# OPENAI_CHAT_MODEL (optional, default gpt-4o)
+#   Chat model for SOAP notes, keywords, and billing suggestions.
+#
+# BACKEND_INTERNAL_URL (frontend only)
+#   Base URL of the FastAPI app as seen from the Next.js *server* (no trailing
+#   slash). In Docker, use the Compose service hostname: http://backend:8000
+#
+# NEXT_PUBLIC_API_BASE_URL (frontend only)
+#   Base URL for browser-side fetch(). Empty string = same-origin paths like
+#   /api/... which Next.js Route Handlers proxy to BACKEND_INTERNAL_URL.
+#
+# PORT (per service)
+#   backend: HTTP port inside the backend container (default 8000).
+#   frontend: Next.js listens on this port inside the container (default 3000).
+#
+# NODE_ENV (frontend)
+#   production for the containerized Next.js server.
+#
+# HOSTNAME (frontend)
+#   Bind address for Next.js (0.0.0.0 inside Docker).
+#
+# =============================================================================
+
+services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_WHISPER_MODEL: whisper-1
+      OPENAI_CHAT_MODEL: gpt-4o
+      PORT: "8000"
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    environment:
+      BACKEND_INTERNAL_URL: http://backend:8000
+      NEXT_PUBLIC_API_BASE_URL: ""
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"

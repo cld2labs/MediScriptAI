@@ -10,6 +10,7 @@ import { AudioInput } from "@/components/AudioInput";
 import { TranscriptDisplay, type Utterance, type Keywords } from "@/components/TranscriptDisplay";
 import { SoapNotesDisplay, type SoapNotes } from "@/components/SoapNotesDisplay";
 import { ExportButtons, type BillingCodes } from "@/components/ExportButtons";
+import { apiUrl } from "@/lib/apiConfig";
 
 export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -33,7 +34,7 @@ export default function Home() {
     try {
       const formData = new FormData();
       formData.append("audio", file instanceof File ? file : new File([file], "audio.webm", { type: file.type }));
-      const res = await fetch("/api/process-audio", {
+      const res = await fetch(apiUrl("/api/process-audio"), {
         method: "POST",
         body: formData,
       });
@@ -56,7 +57,7 @@ export default function Home() {
     setIsGeneratingBilling(true);
     setBillingCodes(null);
     try {
-      const res = await fetch("/api/generate-billing", {
+      const res = await fetch(apiUrl("/api/generate-billing"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(soapNotes),

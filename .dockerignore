@@ -1,33 +1,9 @@
-# Standard ignores (production image / build context)
-node_modules
-npm-debug.log
-README.md
-.next
+# Root context is not used by service Dockerfiles (each service has its own context).
+# Kept minimal if someone runs `docker build` from the repo root by mistake.
 .git
-.env*.local
-
-# Dependencies & logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# Build outputs
-out
-build
-dist
-
-# Env & secrets (keep examples for reference only)
-.env
-.env.*
-!.env.example
-
-# Docs & OS
-*.md
-.DS_Store
-
-# IDE & tools
-.cursor
-.vscode
-.idea
-*.log
+**/node_modules
+**/.next
+**/__pycache__
+**/.venv
+**/.env
+**/.env.*
