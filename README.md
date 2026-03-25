@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="frontend/public/logo.png" width="300" alt="Cloud2 Labs">
+  <img src="frontend/public/InnovationHub-HeaderImage.png" width="800" alt="Cloud2 Labs">
 </p>
 
 # MediScript AI — AI-Powered Clinical Documentation
