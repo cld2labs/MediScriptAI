@@ -3,7 +3,7 @@
 This blueprint is provided by Cloud2 Labs "as is" and "as available" for
 educational and demonstration purposes only.
 
-The **MediScriptAI — AI-Powered Code Translation** blueprint is a reference
+The **MediScriptAI — AI-Powered Clinical Documentation** blueprint is a reference
 implementation and does not constitute a production-ready system or
 regulatory-compliant solution.
 

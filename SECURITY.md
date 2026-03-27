@@ -1,6 +1,6 @@
 # Security Policy
 
-The **MediScriptAI — AI-Powered Code Translation** blueprint does not include
+The **MediScriptAI — AI-Powered Clinical Documentation** blueprint does not include
 production-grade security controls.
 
 This repository is not secure by default and must not be used in production
