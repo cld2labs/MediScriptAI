@@ -1,0 +1,7 @@
+{
+  "name": "sharp",
+  "version": "0.34.5",
+  "description": "MIT-licensed stub; this app uses native <img> and does not run the Next.js sharp image pipeline",
+  "license": "MIT",
+  "main": "index.js"
+}
