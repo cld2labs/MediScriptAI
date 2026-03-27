@@ -1,6 +1,6 @@
 # Terms and Conditions
 
-This repository contains the **CodeTrans — AI-Powered Code Translation** blueprint
+This repository contains the **MediscriptAI — AI-Powered Code Translation** blueprint
 maintained by Cloud2 Labs.
 
 By accessing or using this blueprint, you acknowledge and agree that:
