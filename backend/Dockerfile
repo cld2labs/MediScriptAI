@@ -10,6 +10,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
+RUN groupadd --gid 1000 app \
+    && useradd --uid 1000 --gid app --home-dir /app --no-create-home app \
+    && chown -R app:app /app
+
+USER app
+
 ENV PORT=8000
 EXPOSE 8000
 
