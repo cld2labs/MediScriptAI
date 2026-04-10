@@ -34,9 +34,12 @@ An AI-powered application that converts patient–doctor conversations into stru
   - [Usage Guide](#usage-guide)
   - [Performance Tips](#performance-tips)
   - [Processing Benchmarks](#processing-benchmarks)
+  - [Inference Metrics (Langfuse)](#inference-metrics-langfuse)
   - [Model Capabilities](#model-capabilities)
-    - [Whisper-1](#whisper-1)
     - [GPT-4o](#gpt-4o)
+    - [Qwen2.5 (Ollama, local chat)](#qwen25-ollama-local-chat)
+    - [Whisper-1 (OpenAI STT)](#whisper-1-openai-stt)
+    - [Systran / faster-whisper (HF, local STT)](#systran--faster-whisper-hf-local-stt)
     - [Comparison Summary](#comparison-summary)
   - [Model Configuration](#model-configuration)
     - [Swapping the STT Model](#swapping-the-stt-model)
@@ -434,77 +437,135 @@ MediScriptAI/
 
 ## Processing Benchmarks
 
-The table below shows approximate end-to-end processing times for the full pipeline (Whisper STT + GPT-4o diarization/SOAP) across different audio lengths. Times were measured on a standard broadband connection (100 Mbps upload) and reflect typical OpenAI API response times.
+The table below shows approximate **end-to-end UI processing times** for the full clinical pipeline (Whisper STT + chat diarization/SOAP) across different audio lengths. Times were measured on a standard broadband connection (100 Mbps upload) and reflect typical OpenAI API response times.
 
-| Audio Length | File Size (MP3) | Whisper Time | GPT-4o Time | Total (approx.) |
-|--------------|-----------------|--------------|-------------|-----------------|
-| 1 minute     | ~1 MB           | 3–5 s        | 5–8 s       | 8–13 s          |
-| 3 minutes    | ~3 MB           | 6–10 s       | 6–10 s      | 12–20 s         |
-| 5 minutes    | ~5 MB           | 10–18 s      | 7–12 s      | 17–30 s         |
-| 10 minutes   | ~10 MB          | 20–35 s      | 8–15 s      | 28–50 s         |
+| Audio Length | File Size (MP3) | Whisper Time | Chat (e.g. GPT-4o) Time | Total (approx.) |
+|--------------|-----------------|--------------|-------------------------|-----------------|
+| 1 minute     | ~1 MB           | 3–5 s        | 5–8 s                   | 8–13 s          |
+| 3 minutes    | ~3 MB           | 6–10 s       | 6–10 s                  | 12–20 s         |
+| 5 minutes    | ~5 MB           | 10–18 s      | 7–12 s                  | 17–30 s         |
+| 10 minutes   | ~10 MB          | 20–35 s      | 8–15 s                  | 28–50 s         |
 
 > **Notes:**
 >
-> - Whisper processing time scales primarily with audio file size (upload bandwidth + transcription compute). GPT-4o time scales with the number of transcript segments (input tokens), which grows more slowly than raw audio length.
-> - Times shown use `whisper-1` with `verbose_json` and `gpt-4o` with `json_object` response format. Switching to `gpt-4o-mini` reduces GPT-4o time by approximately 30–50% at the cost of slightly reduced diarization accuracy on short or ambiguous conversations.
+> - Whisper processing time scales primarily with audio file size (upload bandwidth + transcription compute). Chat time scales with the number of transcript segments (input tokens), which grows more slowly than raw audio length.
+> - Times shown use `whisper-1` with `verbose_json` and `gpt-4o` with `json_object` response format. Switching to `gpt-4o-mini` reduces chat time by approximately 30–50% at the cost of slightly reduced diarization accuracy on short or ambiguous conversations.
 > - Billing code generation (`/api/generate-billing`) is a separate lightweight call — typically 2–5 seconds regardless of original audio length, since it processes only the SOAP note text.
 > - OpenAI API latency varies with platform load. During peak hours, add 5–15 seconds to all estimates above. Check [status.openai.com](https://status.openai.com) if latency appears consistently elevated.
 
 ---
 
+## Inference Metrics (Langfuse)
+
+Values below are **Langfuse numeric scores** from the **MediScriptAI** project on traces named **`mediscript-benchmark`**, from **`POST /benchmark`** with `LANGFUSE_ENABLED=true` (score names: `avg_input_tokens`, `avg_output_tokens`, `avg_total_tokens_per_request`, `p50_latency_ms`, `p95_latency_ms`). Reproduce or refresh with **`BENCHMARKING_GUIDE.md`** and:
+
+```bash
+python3 benchmarks/run_benchmark.py --url http://localhost:8000 --payload benchmarks/default_inputs.json
+python3 benchmarks/run_benchmark.py --url http://localhost:8000 --payload benchmarks/langfuse_smoke_inputs.json --quick
+```
+
+Audio + STT benchmarks (`POST /benchmark/audio`) also emit Langfuse traces; add a row here when you have captured scores for that workload.
+
+### Billing LLM benchmark (`POST /benchmark`)
+
+Equivalent to **`POST /api/generate-billing`**: SOAP JSON → CPT/ICD-10. This path exercises **chat / LLM** only (no Whisper).
+
+| Provider | Model | Deployment | Context window (effective) | Avg input tokens | Avg output tokens | Avg tokens / request | P50 latency (ms) | P95 latency (ms) |
+| :------- | :---- | :--------- | :------------------------- | ---------------: | ----------------: | -------------------: | ---------------: | ---------------: |
+| OpenAI (Cloud) | `gpt-4o` | API (Cloud) | 128K (`OPENAI_CHAT_MODEL`) | 444.84 | 307.67 | 752.5 | 6,090 | 10,590 |
+| Ollama (local) | `qwen2.5:3b` | Docker (`docker-compose.qwen.yml`) | 8K–32K† | 235.33 | 165.33 | 400.67 | 84,410 | 201,070 |
+
+† **Context window** for Ollama is the runtime context configured for that tag; it is **not** always the model’s theoretical maximum.
+
+> **Notes:**
+>
+> - **Model scope:** **`gpt-4o`** and **`qwen2.5:3b`** were used **only** for **keyword chat**—the LLM chat completions that drive **medical keyword** extraction. **Whisper** (`whisper-1`) and local **faster-whisper** handle **speech-to-text** only.
+> - **Methodology:** `POST /benchmark` aggregates over all `inputs[]` in the payload. Latency scores are **end-to-end per run** (wall clock) as recorded on the trace.
+
+---
+
 ## Model Capabilities
-
-### Whisper-1
-
-OpenAI's production speech-to-text model, trained on 680,000 hours of multilingual audio.
-
-| Attribute               | Details                                                                                    |
-|-------------------------|--------------------------------------------------------------------------------------------|
-| **Task**                | Speech-to-text transcription                                                               |
-| **Response Format**     | `verbose_json` — returns text, language, duration, and a `segments` array with timestamps  |
-| **Languages**           | 99 languages; strongest performance in English, Spanish, French, German, and Japanese      |
-| **Audio Formats**       | MP3, MP4, MPEG, MPGA, M4A, WAV, WebM                                                       |
-| **Max File Size**       | 25 MB per request                                                                          |
-| **Speaker Diarization** | Not native — segment timestamps are used; GPT-4o assigns speaker roles in Stage 2          |
-| **Noise Robustness**    | Strong on clear speech; degrades with heavy background noise or strongly overlapping speech |
-| **Pricing**             | $0.006 / minute of audio                                                                   |
-| **Deployment**          | Cloud-only — OpenAI API. No self-hosted or on-prem option                                  |
-| **Configurable via**    | `OPENAI_WHISPER_MODEL` environment variable                                                |
 
 ### GPT-4o
 
-OpenAI's flagship model, used for both clinical reasoning (Stage 2) and billing code extraction (Stage 3).
+OpenAI’s flagship multimodal model, used in MediScript for **contextual diarization** (Doctor/Patient labels from Whisper segments), **SOAP** and **keywords**, and **billing JSON** (`json_object`). Default when `VLLM_CHAT_URL` is unset.
 
-| Attribute                   | Details                                                                          |
-|-----------------------------|----------------------------------------------------------------------------------|
-| **Parameters**              | Not publicly disclosed                                                           |
-| **Architecture**            | Multimodal Transformer (text + image input, text output)                         |
-| **Context Window**          | 128,000 tokens input / 16,384 tokens max output                                  |
-| **Structured Output**       | `json_object` and strict JSON schema mode supported                              |
-| **Tool / Function Calling** | Supported; parallel function calling                                             |
-| **Medical Knowledge**       | Strong — trained on clinical literature, medical coding standards (CPT, ICD-10)  |
-| **Multilingual**            | Broad multilingual support across 50+ languages                                  |
-| **Pricing**                 | $2.50 / 1M input tokens, $10.00 / 1M output tokens                               |
-| **Fine-Tuning**             | Supervised fine-tuning available via OpenAI API                                  |
-| **License**                 | Proprietary (OpenAI Terms of Use)                                                |
-| **Deployment**              | Cloud-only — OpenAI API or Azure OpenAI Service                                  |
-| **Knowledge Cutoff**        | April 2024                                                                       |
-| **Configurable via**        | `OPENAI_CHAT_MODEL` environment variable                                         |
+| Attribute | Details |
+| :-------- | :------ |
+| **Parameters** | Not publicly disclosed |
+| **Architecture** | Multimodal Transformer (text + image input, text output) |
+| **Context window** | 128,000 tokens input / 16,384 tokens max output |
+| **Reasoning mode** | Standard chat completion (no separate “thinking” toggle in our integration) |
+| **Tool / function calling** | Supported in general; MediScript uses **structured JSON** responses for clinical outputs |
+| **Structured output** | `json_object` for SOAP, utterances, keywords, and billing |
+| **Multilingual** | Broad multilingual support |
+| **Medical use** | Strong general clinical and coding knowledge; all outputs require human review |
+| **Pricing** | $2.50 / 1M input tokens, $10.00 / 1M output tokens (see OpenAI pricing page for current rates) |
+| **Fine-tuning** | Supervised fine-tuning via OpenAI API |
+| **License** | Proprietary (OpenAI Terms of Use) |
+| **Deployment** | Cloud — OpenAI API or Azure OpenAI Service |
+| **Knowledge cutoff** | April 2024 (per OpenAI model card) |
+| **Configurable via** | `OPENAI_CHAT_MODEL` |
+
+### Qwen2.5 (Ollama, local chat)
+
+Open-weight **chat** alternative for billing and (if configured) SOAP stages when `VLLM_CHAT_URL` points at Ollama’s OpenAI-compatible API. Default in **`docker-compose.qwen.yml`**: `qwen2.5:3b` (smaller RAM footprint in Docker).
+
+| Attribute | Details |
+| :-------- | :------ |
+| **Role in MediScript** | Same OpenAI SDK path as cloud chat; **`VLLM_CHAT_MODEL`** selects the Ollama tag |
+| **Open weights** | Yes — Qwen2.5 family (license per model card on Hugging Face) |
+| **Architecture** | Dense decoder-only Transformer (Instruct-tuned) |
+| **Context window** | Depends on Ollama model and server settings (often 8K–32K in practice) |
+| **Structured output** | `json_object` / JSON billing schema (quality varies vs GPT-4o; validate outputs) |
+| **Quantization / edge** | Ollama serves GGUF-style bundles; suitable for **on-prem** and **air-gapped** flows |
+| **Multimodal (image)** | Not used in MediScript pipeline |
+| **Deployment** | Local — **`docker compose -f docker-compose.yml -f docker-compose.qwen.yml`** |
+| **Configurable via** | `VLLM_CHAT_URL`, `VLLM_CHAT_MODEL`, `VLLM_API_KEY` |
+
+### Whisper-1 (OpenAI STT)
+
+OpenAI’s production **speech-to-text** model for **`/api/process-audio`** when `VLLM_STT_URL` is unset.
+
+| Attribute | Details |
+| :-------- | :------ |
+| **Task** | Speech-to-text transcription |
+| **Response format** | `verbose_json` — text, language, duration, **`segments`** with timestamps |
+| **Languages** | 99+ languages; strongest in high-resource locales |
+| **Audio formats** | MP3, MP4, MPEG, MPGA, M4A, WAV, WebM |
+| **Max file size** | 25 MB per request (align with `MAX_FILE_SIZE_MB`) |
+| **Speaker diarization** | **Not native** — MediScript uses **timestamped segments + chat model** for Doctor/Patient labels |
+| **Pricing** | Per-minute audio (see OpenAI pricing) |
+| **Deployment** | Cloud-only |
+| **Configurable via** | `OPENAI_WHISPER_MODEL` |
+
+### Systran / faster-whisper (HF, local STT)
+
+**CTranslate2** weights on the **Hugging Face Hub** (e.g. **`Systran/faster-whisper-large-v3`**) served by the repo’s **`stt-service`** when using **`docker-compose.whisper-hf.yml`**. Implements **`POST /v1/audio/transcriptions`** compatible with MediScript’s `VLLM_STT_URL` client.
+
+| Attribute | Details |
+| :-------- | :------ |
+| **Task** | Local speech-to-text with **`verbose_json`-style segments** for the same downstream prompt as Whisper-1 |
+| **Open weights** | Yes — Hub model id (e.g. Systran/faster-whisper-*) |
+| **Deployment** | Docker — **`stt-whisper-hf`** service; weights cached under volume **`stt_whisper_hf_cache`** |
+| **Hardware** | CPU (`int8`) by default; GPU optional if you extend the image |
+| **Speaker diarization** | Same as Whisper-1: **segments only**; roles from **chat** model |
+| **Configurable via** | `WHISPER_HF_MODEL`, `VLLM_STT_URL`, `VLLM_STT_MODEL` |
 
 ### Comparison Summary
 
-| Capability                    | Whisper-1                            | GPT-4o                                          |
-|-------------------------------|--------------------------------------|-------------------------------------------------|
-| Role in pipeline              | Stage 1 — audio to text              | Stage 2 & 3 — reasoning and coding              |
-| Input type                    | Audio file (MP3, WAV, etc.)          | Text (transcript segments or SOAP notes)        |
-| Output type                   | Timestamped transcript segments      | Structured JSON (utterances, SOAP, billing codes)|
-| Speaker diarization           | No (timestamp segments only)         | Yes (context-based role assignment)             |
-| Medical terminology accuracy  | High (trained on diverse audio)      | High (clinical training data)                   |
-| Structured JSON output        | No                                   | Yes (`json_object` mode)                        |
-| Open weights / self-hosted    | No                                   | No                                              |
-| Cost per typical 5-min visit  | ~$0.03                               | ~$0.02–$0.05 (scales with transcript length)    |
+| Capability | Qwen2.5 (`qwen2.5:3b` Ollama) | GPT-4o | Whisper-1 (STT) | Systran / faster-whisper (STT) |
+| :--------- | :--------------------------- | :----- | :-------------- | :----------------------------- |
+| **JSON / structured billing** | Yes (local inference) | Yes (cloud) | N/A | N/A |
+| **Clinical SOAP + diarization chat** | Optional (`VLLM_CHAT_URL`) | Default cloud path | N/A | N/A |
+| **Timestamped STT segments** | N/A | N/A | Yes | Yes |
+| **On-prem / air-gapped** | Yes (chat) | No | No | Yes (STT) |
+| **Data sovereignty (weights local)** | Yes | No | No | Yes |
+| **Open weights** | Yes | No | No | Yes |
+| **Multimodal (image in chat)** | No | Yes (API capability; not used in default UI) | N/A | N/A |
+| **Typical latency (MediScript benchmarks)** | High on CPU Docker | Lower (cloud) | Cloud STT latency | CPU-bound; model-size dependent |
 
-> Both models are cloud-only and require an active OpenAI API key. Whisper handles all audio physics (timestamps, noise filtering); GPT-4o handles all clinical logic (who said what, what it means, how to code it). This separation keeps each model doing what it does best and makes it straightforward to swap either independently via environment variable.
+> **Summary:** MediScript’s default **product demo** path uses **OpenAI `whisper-1` + `gpt-4o`** — maximum convenience and strong JSON quality, with audio leaving the org for STT. **Qwen via Ollama** and **faster-whisper via Hugging Face** exist for **local chat and/or local STT**, which helps **regulated, air-gapped, or cost-sensitive** deployments at the expense of **latency** (especially on CPU) and sometimes **JSON robustness** compared to GPT-4o. All four can be benchmarked consistently via **`POST /benchmark`** and **`POST /benchmark/audio`** with **Langfuse** scores on trace **`mediscript-benchmark`**.
 
 ---
 
