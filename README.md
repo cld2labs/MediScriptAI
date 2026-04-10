@@ -22,7 +22,7 @@ An AI-powered application that converts patient–doctor conversations into stru
   - [Get Started](#get-started)
     - [Prerequisites](#prerequisites)
       - [Verify Installation](#verify-installation)
-    - [Quick Start (Docker)](#quick-start-docker)
+    - [Quick Start (Docker Deployment)](#quick-start-docker-deployment)
       - [1. Clone the Repository](#1-clone-the-repository)
       - [2. Configure the Environment](#2-configure-the-environment)
       - [3. Build and Start the Application](#3-build-and-start-the-application)
@@ -33,20 +33,23 @@ An AI-powered application that converts patient–doctor conversations into stru
   - [Project Structure](#project-structure)
   - [Usage Guide](#usage-guide)
   - [Performance Tips](#performance-tips)
-  - [Processing Benchmarks](#processing-benchmarks)
-  - [Inference Metrics (Langfuse)](#inference-metrics-langfuse)
+  - [Inference Metrics](#inference-metrics)
   - [Model Capabilities](#model-capabilities)
+    - [Qwen2.5-3B-Instruct (Ollama)](#qwen25-3b-instruct-ollama)
     - [GPT-4o](#gpt-4o)
-    - [Qwen2.5 (Ollama, local chat)](#qwen25-ollama-local-chat)
-    - [Whisper-1 (OpenAI STT)](#whisper-1-openai-stt)
-    - [Systran / faster-whisper (HF, local STT)](#systran--faster-whisper-hf-local-stt)
     - [Comparison Summary](#comparison-summary)
-  - [Model Configuration](#model-configuration)
-    - [Swapping the STT Model](#swapping-the-stt-model)
-    - [Swapping the Chat Model](#swapping-the-chat-model)
+  - [LLM Provider Configuration](#llm-provider-configuration)
+    - [OpenAI](#openai)
+    - [Ollama](#ollama)
+    - [Groq](#groq)
+    - [OpenRouter](#openrouter)
+    - [Custom API (OpenAI-compatible)](#custom-api-openai-compatible)
+    - [Switching Providers](#switching-providers)
   - [Environment Variables](#environment-variables)
-    - [Core AI Configuration](#core-ai-configuration)
-    - [Audio Processing Limits](#audio-processing-limits)
+    - [Core LLM Configuration](#core-llm-configuration)
+    - [Generation Parameters](#generation-parameters)
+    - [Session Management](#session-management)
+    - [File Upload Limits](#file-upload-limits)
     - [Server Configuration](#server-configuration)
   - [Technology Stack](#technology-stack)
     - [Backend](#backend)
@@ -218,7 +221,7 @@ docker compose version
 
 ---
 
-### Quick Start (Docker)
+### Quick Start (Docker Deployment)
 
 #### 1. Clone the Repository
 
@@ -435,56 +438,46 @@ MediScriptAI/
 
 ---
 
-## Processing Benchmarks
+## Inference Metrics
 
-The table below shows approximate **end-to-end UI processing times** for the full clinical pipeline (Whisper STT + chat diarization/SOAP) across different audio lengths. Times were measured on a standard broadband connection (100 Mbps upload) and reflect typical OpenAI API response times.
+The table below compares inference performance across providers and deployment modes using a standardized **MediScript AI** workload: **billing LLM** calls equivalent to **`POST /api/generate-billing`** (SOAP JSON → CPT/ICD), driven by **`POST /benchmark`** with **`benchmarks/default_inputs.json`**, averaged over **3 runs**. **Throughput** is approximated as **`1000 / P50_latency_ms`** sequential requests per second (single-stream).
 
-| Audio Length | File Size (MP3) | Whisper Time | Chat (e.g. GPT-4o) Time | Total (approx.) |
-|--------------|-----------------|--------------|-------------------------|-----------------|
-| 1 minute     | ~1 MB           | 3–5 s        | 5–8 s                   | 8–13 s          |
-| 3 minutes    | ~3 MB           | 6–10 s       | 6–10 s                  | 12–20 s         |
-| 5 minutes    | ~5 MB           | 10–18 s      | 7–12 s                  | 17–30 s         |
-| 10 minutes   | ~10 MB          | 20–35 s      | 8–15 s                  | 28–50 s         |
+| Provider | Model | Deployment | Context Window | Avg Input Tokens | Avg Output Tokens | Avg Tokens / Request | P50 Latency (ms) | P95 Latency (ms) | Throughput (req/s) | Hardware |
+| :------- | :---- | :--------- | :------------- | ---------------: | ----------------: | -------------------: | ---------------: | ---------------: | -----------------: | :------- |
+| Ollama | `qwen2.5:3b` | Local (Docker) | 8K† | 235.33 | 165.33 | 400.67 | 84,410 | 201,070 | 0.0118 | CPU-only (Docker Desktop Linux VM) |
+| OpenAI (Cloud) | `gpt-4o` | API (Cloud) | 128K | 444.84 | 307.67 | 752.5 | 6,090 | 10,590 | 0.1645 | Cloud (OpenAI-managed) |
 
-> **Notes:**
->
-> - Whisper processing time scales primarily with audio file size (upload bandwidth + transcription compute). Chat time scales with the number of transcript segments (input tokens), which grows more slowly than raw audio length.
-> - Times shown use `whisper-1` with `verbose_json` and `gpt-4o` with `json_object` response format. Switching to `gpt-4o-mini` reduces chat time by approximately 30–50% at the cost of slightly reduced diarization accuracy on short or ambiguous conversations.
-> - Billing code generation (`/api/generate-billing`) is a separate lightweight call — typically 2–5 seconds regardless of original audio length, since it processes only the SOAP note text.
-> - OpenAI API latency varies with platform load. During peak hours, add 5–15 seconds to all estimates above. Check [status.openai.com](https://status.openai.com) if latency appears consistently elevated.
+† **8K** is the effective context cap observed for this Ollama tag in Docker during the run; it is not necessarily the largest context the Qwen2.5 family supports on other runtimes.
 
----
+**Notes:**
 
-## Inference Metrics (Langfuse)
-
-Values below are **Langfuse numeric scores** from the **MediScriptAI** project on traces named **`mediscript-benchmark`**, from **`POST /benchmark`** with `LANGFUSE_ENABLED=true` (score names: `avg_input_tokens`, `avg_output_tokens`, `avg_total_tokens_per_request`, `p50_latency_ms`, `p95_latency_ms`). Reproduce or refresh with **`BENCHMARKING_GUIDE.md`** and:
-
-```bash
-python3 benchmarks/run_benchmark.py --url http://localhost:8000 --payload benchmarks/default_inputs.json
-python3 benchmarks/run_benchmark.py --url http://localhost:8000 --payload benchmarks/langfuse_smoke_inputs.json --quick
-```
-
-Audio + STT benchmarks (`POST /benchmark/audio`) also emit Langfuse traces; add a row here when you have captured scores for that workload.
-
-### Billing LLM benchmark (`POST /benchmark`)
-
-Equivalent to **`POST /api/generate-billing`**: SOAP JSON → CPT/ICD-10. This path exercises **chat / LLM** only (no Whisper).
-
-| Provider | Model | Deployment | Context window (effective) | Avg input tokens | Avg output tokens | Avg tokens / request | P50 latency (ms) | P95 latency (ms) |
-| :------- | :---- | :--------- | :------------------------- | ---------------: | ----------------: | -------------------: | ---------------: | ---------------: |
-| OpenAI (Cloud) | `gpt-4o` | API (Cloud) | 128K (`OPENAI_CHAT_MODEL`) | 444.84 | 307.67 | 752.5 | 6,090 | 10,590 |
-| Ollama (local) | `qwen2.5:3b` | Docker (`docker-compose.qwen.yml`) | 8K–32K† | 235.33 | 165.33 | 400.67 | 84,410 | 201,070 |
-
-† **Context window** for Ollama is the runtime context configured for that tag; it is **not** always the model’s theoretical maximum.
-
-> **Notes:**
->
-> - **Model scope:** **`gpt-4o`** and **`qwen2.5:3b`** were used **only** for **keyword chat**—the LLM chat completions that drive **medical keyword** extraction. **Whisper** (`whisper-1`) and local **faster-whisper** handle **speech-to-text** only.
-> - **Methodology:** `POST /benchmark` aggregates over all `inputs[]` in the payload. Latency scores are **end-to-end per run** (wall clock) as recorded on the trace.
+- **MediScript harness:** Same three SOAP cases in **`benchmarks/default_inputs.json`** per run; metrics are aggregate averages across the **3 runs**. Token totals may differ slightly between runs because of **non-deterministic** completions.
+- **Ollama in Docker** is **CPU-only** inside the typical Linux VM (no Metal). **Bare-metal** Ollama on macOS can use **Metal (MPS)**; expect different latencies than the Docker row above.
 
 ---
 
 ## Model Capabilities
+
+### Qwen2.5-3B-Instruct (Ollama)
+
+A **3B-parameter** open-weight instruct model from Alibaba’s **Qwen2.5** line, pulled in Docker as **`qwen2.5:3b`** for **on-device and on-prem** chat (billing JSON and structured clinical output) when `VLLM_CHAT_URL` targets **Ollama**.
+
+| Attribute | Details |
+| :-------- | :------ |
+| **Parameters** | ~3B (Instruct; exact non-embedding split per model card on Hugging Face) |
+| **Architecture** | Dense decoder-only Transformer (Instruct-tuned); runtime via **Ollama** GGUF bundles |
+| **Context window** | **Native** context per Qwen2.5 card (often **32K+**); **effective** window in MediScript is whatever **Ollama** exposes for the tag (commonly **8K–32K** in practice) |
+| **Reasoning mode** | Standard instruct completion (no separate “thinking” channel in MediScript integration) |
+| **Tool / function calling** | Supported in general on some Qwen builds; MediScript uses **JSON-structured chat** responses for clinical payloads |
+| **Structured output** | **`json_object`** for billing, SOAP, utterances, and keywords — validate outputs in production |
+| **Multilingual** | Strong multilingual coverage (see Qwen2.5 model card) |
+| **Clinical use** | Suitable for **local / air-gapped** experimentation; medical quality and JSON adherence may trail **`gpt-4o`** — human review required |
+| **Quantization formats** | As packaged by **Ollama** (GGUF-style); other formats on Hugging Face for vLLM / llama.cpp workflows |
+| **Inference runtimes** | **Ollama**, **vLLM**, **llama.cpp**, LM Studio, etc. |
+| **Fine-tuning** | Community and full fine-tunes possible on Qwen2.5 checkpoints (see Hugging Face) |
+| **License** | Apache 2.0 (verify per exact checkpoint card) |
+| **Deployment** | **Local**, **on-prem**, **air-gapped** — full data sovereignty when weights stay in your network |
+| **MediScript default** | **`docker compose -f docker-compose.yml -f docker-compose.qwen.yml`** with **`VLLM_CHAT_MODEL=qwen2.5:3b`** |
 
 ### GPT-4o
 
@@ -495,119 +488,100 @@ OpenAI’s flagship multimodal model, used in MediScript for **contextual diariz
 | **Parameters** | Not publicly disclosed |
 | **Architecture** | Multimodal Transformer (text + image input, text output) |
 | **Context window** | 128,000 tokens input / 16,384 tokens max output |
-| **Reasoning mode** | Standard chat completion (no separate “thinking” toggle in our integration) |
-| **Tool / function calling** | Supported in general; MediScript uses **structured JSON** responses for clinical outputs |
-| **Structured output** | `json_object` for SOAP, utterances, keywords, and billing |
+| **Reasoning mode** | Standard inference (no explicit chain-of-thought toggle in MediScript) |
+| **Tool / function calling** | Supported; parallel function calling available in the API |
+| **Structured output** | JSON mode and strict JSON schema adherence supported (`json_object` for clinical outputs) |
 | **Multilingual** | Broad multilingual support |
-| **Medical use** | Strong general clinical and coding knowledge; all outputs require human review |
-| **Pricing** | $2.50 / 1M input tokens, $10.00 / 1M output tokens (see OpenAI pricing page for current rates) |
+| **Medical / coding** | Strong general clinical and CPT/ICD-style suggestions; all outputs require expert review |
+| **Pricing** | $2.50 / 1M input tokens, $10.00 / 1M output tokens (see OpenAI pricing for current rates) |
 | **Fine-tuning** | Supervised fine-tuning via OpenAI API |
 | **License** | Proprietary (OpenAI Terms of Use) |
-| **Deployment** | Cloud — OpenAI API or Azure OpenAI Service |
+| **Deployment** | Cloud-only — OpenAI API or Azure OpenAI Service. No self-hosted or on-prem option |
 | **Knowledge cutoff** | April 2024 (per OpenAI model card) |
 | **Configurable via** | `OPENAI_CHAT_MODEL` |
 
-### Qwen2.5 (Ollama, local chat)
-
-Open-weight **chat** alternative for billing and (if configured) SOAP stages when `VLLM_CHAT_URL` points at Ollama’s OpenAI-compatible API. Default in **`docker-compose.qwen.yml`**: `qwen2.5:3b` (smaller RAM footprint in Docker).
-
-| Attribute | Details |
-| :-------- | :------ |
-| **Role in MediScript** | Same OpenAI SDK path as cloud chat; **`VLLM_CHAT_MODEL`** selects the Ollama tag |
-| **Open weights** | Yes — Qwen2.5 family (license per model card on Hugging Face) |
-| **Architecture** | Dense decoder-only Transformer (Instruct-tuned) |
-| **Context window** | Depends on Ollama model and server settings (often 8K–32K in practice) |
-| **Structured output** | `json_object` / JSON billing schema (quality varies vs GPT-4o; validate outputs) |
-| **Quantization / edge** | Ollama serves GGUF-style bundles; suitable for **on-prem** and **air-gapped** flows |
-| **Multimodal (image)** | Not used in MediScript pipeline |
-| **Deployment** | Local — **`docker compose -f docker-compose.yml -f docker-compose.qwen.yml`** |
-| **Configurable via** | `VLLM_CHAT_URL`, `VLLM_CHAT_MODEL`, `VLLM_API_KEY` |
-
-### Whisper-1 (OpenAI STT)
-
-OpenAI’s production **speech-to-text** model for **`/api/process-audio`** when `VLLM_STT_URL` is unset.
-
-| Attribute | Details |
-| :-------- | :------ |
-| **Task** | Speech-to-text transcription |
-| **Response format** | `verbose_json` — text, language, duration, **`segments`** with timestamps |
-| **Languages** | 99+ languages; strongest in high-resource locales |
-| **Audio formats** | MP3, MP4, MPEG, MPGA, M4A, WAV, WebM |
-| **Max file size** | 25 MB per request (align with `MAX_FILE_SIZE_MB`) |
-| **Speaker diarization** | **Not native** — MediScript uses **timestamped segments + chat model** for Doctor/Patient labels |
-| **Pricing** | Per-minute audio (see OpenAI pricing) |
-| **Deployment** | Cloud-only |
-| **Configurable via** | `OPENAI_WHISPER_MODEL` |
-
-### Systran / faster-whisper (HF, local STT)
-
-**CTranslate2** weights on the **Hugging Face Hub** (e.g. **`Systran/faster-whisper-large-v3`**) served by the repo’s **`stt-service`** when using **`docker-compose.whisper-hf.yml`**. Implements **`POST /v1/audio/transcriptions`** compatible with MediScript’s `VLLM_STT_URL` client.
-
-| Attribute | Details |
-| :-------- | :------ |
-| **Task** | Local speech-to-text with **`verbose_json`-style segments** for the same downstream prompt as Whisper-1 |
-| **Open weights** | Yes — Hub model id (e.g. Systran/faster-whisper-*) |
-| **Deployment** | Docker — **`stt-whisper-hf`** service; weights cached under volume **`stt_whisper_hf_cache`** |
-| **Hardware** | CPU (`int8`) by default; GPU optional if you extend the image |
-| **Speaker diarization** | Same as Whisper-1: **segments only**; roles from **chat** model |
-| **Configurable via** | `WHISPER_HF_MODEL`, `VLLM_STT_URL`, `VLLM_STT_MODEL` |
-
 ### Comparison Summary
 
-| Capability | Qwen2.5 (`qwen2.5:3b` Ollama) | GPT-4o | Whisper-1 (STT) | Systran / faster-whisper (STT) |
-| :--------- | :--------------------------- | :----- | :-------------- | :----------------------------- |
-| **JSON / structured billing** | Yes (local inference) | Yes (cloud) | N/A | N/A |
-| **Clinical SOAP + diarization chat** | Optional (`VLLM_CHAT_URL`) | Default cloud path | N/A | N/A |
-| **Timestamped STT segments** | N/A | N/A | Yes | Yes |
-| **On-prem / air-gapped** | Yes (chat) | No | No | Yes (STT) |
-| **Data sovereignty (weights local)** | Yes | No | No | Yes |
-| **Open weights** | Yes | No | No | Yes |
-| **Multimodal (image in chat)** | No | Yes (API capability; not used in default UI) | N/A | N/A |
-| **Typical latency (MediScript benchmarks)** | High on CPU Docker | Lower (cloud) | Cloud STT latency | CPU-bound; model-size dependent |
+| Capability | Qwen2.5-3B (`qwen2.5:3b`) | GPT-4o |
+| :--------- | :------------------------ | :----- |
+| **Structured clinical JSON (SOAP, utterances, keywords, billing)** | Yes (local inference) | Yes (cloud) |
+| **Function / tool calling** | Model-dependent; MediScript uses JSON chat | Yes (API capability) |
+| **JSON structured output** | Yes (`json_object`) | Yes (`json_object`) |
+| **On-prem / air-gapped deployment** | Yes | No |
+| **Data sovereignty** | Full (weights run locally) | No (payloads sent to OpenAI API) |
+| **Open weights** | Yes (Apache 2.0 family) | No (proprietary) |
+| **Custom fine-tuning** | Full fine-tuning and adapters on open checkpoints | Supervised fine-tuning via OpenAI API only |
+| **Quantization for edge devices** | GGUF / Ollama bundles; other formats via HF | N/A |
+| **Multimodal (image input)** | Not used in MediScript UI | Yes (API capability) |
+| **Native context window (typical card)** | 32K+ (runtime cap may be lower in Ollama) | 128K |
 
-> **Summary:** MediScript’s default **product demo** path uses **OpenAI `whisper-1` + `gpt-4o`** — maximum convenience and strong JSON quality, with audio leaving the org for STT. **Qwen via Ollama** and **faster-whisper via Hugging Face** exist for **local chat and/or local STT**, which helps **regulated, air-gapped, or cost-sensitive** deployments at the expense of **latency** (especially on CPU) and sometimes **JSON robustness** compared to GPT-4o. All four can be benchmarked consistently via **`POST /benchmark`** and **`POST /benchmark/audio`** with **Langfuse** scores on trace **`mediscript-benchmark`**.
+Both models support **structured clinical JSON** suitable for MediScript’s pipeline. However, only **Qwen2.5** (local) offers **open weights**, **data sovereignty**, and **on-prem** flexibility — making it appropriate for **air-gapped**, **regulated**, or **cost-sensitive** environments when you accept **higher latency** on CPU and stricter validation. **GPT-4o** offers **lower latency** and often **stronger JSON reliability** via **OpenAI’s cloud**, with **multimodal** options for future UI work.
 
 ---
 
-## Model Configuration
+## LLM Provider Configuration
 
-Both AI models are configurable via environment variables — no code changes or container rebuilds needed.
+All providers are configured via **environment variables** declared in **`docker-compose.yml`** (or exported in your shell for local dev). Use **`OPENAI_API_KEY`** with unset **`VLLM_*`** URLs for cloud OpenAI, or set **`VLLM_CHAT_URL`** / **`VLLM_STT_URL`** to OpenAI-compatible endpoints for local or third-party hosts.
 
-### Swapping the STT Model
+### OpenAI
 
-The default Whisper model is `whisper-1`. Set `OPENAI_WHISPER_MODEL` to use a different model when OpenAI releases updated versions:
+**Default.** Set **`OPENAI_API_KEY`**. Chat uses **`OPENAI_CHAT_MODEL`** (default `gpt-4o`); speech-to-text uses **`OPENAI_WHISPER_MODEL`** (default `whisper-1`) when **`VLLM_STT_URL`** is unset. No `base_url` override — traffic goes to OpenAI’s cloud API.
 
-```bash
-export OPENAI_WHISPER_MODEL="whisper-1"
-```
+### Ollama
 
-> `whisper-1` is currently the only production STT model available via the OpenAI transcriptions API. This variable is provided for forward compatibility.
+**Local chat (and optional alignment with CodeTrans-style stacks):** set **`VLLM_CHAT_URL`** to your Ollama OpenAI-compatible endpoint (e.g. `http://ollama:11434/v1` in Compose) and **`VLLM_CHAT_MODEL`** to the tag (e.g. `qwen2.5:3b`). Use **`docker-compose.qwen.yml`** as a reference overlay. **`VLLM_API_KEY`** may be set to any non-empty string if the server expects a Bearer token.
 
-### Swapping the Chat Model
+### Groq
 
-The default chat model is `gpt-4o`. Set `OPENAI_CHAT_MODEL` to switch models. Both `/api/process-audio` and `/api/generate-billing` use this variable:
+**Not wired by default.** Groq exposes an OpenAI-compatible HTTP API; you could point **`VLLM_CHAT_URL`** (or a forked client) at Groq’s base URL and set **`VLLM_API_KEY`** to a Groq API key. This is **not** tested or documented as a first-class path in this repo—validate latency and **`json_object`** behavior before production use.
 
-```bash
-# Default — best diarization accuracy and SOAP quality
-export OPENAI_CHAT_MODEL="gpt-4o"
+### OpenRouter
 
-# Faster and cheaper — slightly reduced diarization accuracy on short recordings
-export OPENAI_CHAT_MODEL="gpt-4o-mini"
-```
+**Not wired by default.** Same pattern as Groq: any OpenAI-compatible gateway can theoretically be used by configuring **`base_url`** + API key for the chat client. MediScript does not ship OpenRouter-specific env keys; use **`VLLM_CHAT_URL`** / **`VLLM_API_KEY`** if you adapt the backend.
 
-**Recommended models:**
+### Custom API (OpenAI-compatible)
 
-| Model         | Diarization Accuracy | SOAP Quality | Billing Accuracy | Approx. Cost / Visit |
-|---------------|----------------------|--------------|------------------|----------------------|
-| `gpt-4o`      | Excellent            | Excellent    | High             | ~$0.03–$0.05         |
-| `gpt-4o-mini` | Good                 | Good         | Moderate         | ~$0.005–$0.01        |
+Use **`VLLM_CHAT_URL`** for chat completions and **`VLLM_STT_URL`** for **`/v1/audio/transcriptions`** (e.g. local **vLLM**, **faster-whisper** sidecar, or enterprise inference). Set **`VLLM_CHAT_MODEL`** / **`VLLM_STT_MODEL`** to the model ids your server expects. See **`docker-compose.whisper-hf.yml`** for a local STT example.
 
-Switching models requires only updating `OPENAI_CHAT_MODEL` and restarting the backend container — no rebuild needed:
+### Switching Providers
+
+1. **Cloud OpenAI only (default)** — Set your API key and leave local inference URLs unset so the OpenAI SDK uses the public API for both chat and STT.
 
 ```bash
-export OPENAI_CHAT_MODEL="gpt-4o-mini"
-docker compose restart backend
+export OPENAI_API_KEY=sk-...
+# Do not set VLLM_CHAT_URL or VLLM_STT_URL
 ```
+
+2. **Local chat + cloud Whisper** — Point chat at an OpenAI-compatible server (e.g. Ollama) while **`OPENAI_API_KEY`** still satisfies cloud STT.
+
+```bash
+export OPENAI_API_KEY=sk-...
+export VLLM_CHAT_URL=http://ollama:11434/v1
+export VLLM_CHAT_MODEL=qwen2.5:3b
+export VLLM_API_KEY=ollama
+```
+
+3. **Local STT + cloud chat** — Use **`VLLM_STT_URL`** (see **`docker-compose.whisper-hf.yml`**) and keep **`OPENAI_API_KEY`** for GPT chat.
+
+```bash
+export OPENAI_API_KEY=sk-...
+export VLLM_STT_URL=http://stt-whisper-hf:8002/v1
+export VLLM_STT_MODEL=Systran/faster-whisper-large-v3
+```
+
+4. **All local** — Set both **`VLLM_CHAT_URL`** and **`VLLM_STT_URL`** (and models / **`VLLM_API_KEY`** as required). Keep **`OPENAI_API_KEY`** only if some call path still hits OpenAI.
+
+```bash
+export VLLM_CHAT_URL=http://ollama:11434/v1
+export VLLM_CHAT_MODEL=qwen2.5:3b
+export VLLM_STT_URL=http://stt-whisper-hf:8002/v1
+export VLLM_STT_MODEL=Systran/faster-whisper-large-v3
+export VLLM_API_KEY=ollama
+```
+
+After changing provider variables, **restart** the backend (`docker compose up -d` or `docker compose restart backend`).
+
+**Model names:** override **`OPENAI_CHAT_MODEL`** / **`OPENAI_WHISPER_MODEL`** for OpenAI cloud; use **`VLLM_CHAT_MODEL`** / **`VLLM_STT_MODEL`** for OpenAI-compatible servers.
 
 ---
 
@@ -621,20 +595,47 @@ export OPENAI_API_KEY=sk-...
 
 **Local dev:** Export the same variables in your shell (see `.env.example` for a reference checklist). The app does not auto-load `.env` files from inside `frontend/` or `backend/`.
 
-### Core AI Configuration
+### Core LLM Configuration
 
 | Variable               | Service  | Description                                                  | Default     | Type   |
 |------------------------|----------|--------------------------------------------------------------|-------------|--------|
 | `OPENAI_API_KEY`       | backend  | OpenAI API key — used for both Whisper and GPT-4o            | —           | string |
 | `OPENAI_WHISPER_MODEL` | backend  | Whisper model identifier for speech-to-text                  | `whisper-1` | string |
 | `OPENAI_CHAT_MODEL`    | backend  | Chat model for diarization, SOAP generation, and billing     | `gpt-4o`    | string |
+| `VLLM_CHAT_URL`        | backend  | Optional OpenAI-compatible chat base URL (ends in `/v1`); unset = OpenAI cloud | — | string |
+| `VLLM_STT_URL`         | backend  | Optional OpenAI-compatible STT base URL for `/v1/audio/transcriptions` | — | string |
+| `VLLM_CHAT_MODEL`      | backend  | Model id for local chat server                               | `Qwen/Qwen2.5-7B-Instruct` | string |
+| `VLLM_STT_MODEL`       | backend  | Model id for local STT server                                | `openai/whisper-large-v3` | string |
+| `VLLM_API_KEY`         | backend  | Bearer token for vLLM-compatible servers (often `EMPTY`)     | —           | string |
 
-### Audio Processing Limits
+### Generation Parameters
+
+This blueprint does **not** expose sampling or output caps as environment variables; structured clinical responses use **`response_format: { "type": "json_object" }`** in code. The table below mirrors common knobs for **structural parity** with other Innovation Hub READMEs—here they are **not defined** unless you add them.
+
+| Variable            | Service | Description                                                                 | Default | Type    |
+|---------------------|---------|-----------------------------------------------------------------------------|---------|---------|
+| `LLM_TEMPERATURE`   | backend | **Not defined.** Set in application code where completions are invoked, or add an env-backed option in **`app/config.py`**. | —       | float   |
+| `LLM_MAX_TOKENS`    | backend | **Not defined.** No env cap on completion length; extend **`backend/app/services/`** if needed. | —       | integer |
+| `MAX_CODE_LENGTH`   | backend | **Not defined.** No codegen-style length limit env var; billing uses structured JSON from the LLM. | —       | integer |
+
+**Model choice** (context, cost, latency) is controlled by **`OPENAI_CHAT_MODEL`**, **`OPENAI_WHISPER_MODEL`**, **`VLLM_CHAT_MODEL`**, and **`VLLM_STT_MODEL`** (see **Core LLM Configuration**).
+
+### Session Management
+
+The API is **stateless**: no server-side session store and no user accounts in the default stack. Each request carries its own payload; responses are built in memory and not persisted by the app.
+
+| Variable              | Service  | Description                                                                 | Default | Type   |
+|-----------------------|----------|-----------------------------------------------------------------------------|---------|--------|
+| `CORS_ALLOW_ORIGINS`  | backend  | **Not used** in this blueprint. The browser calls Next.js **`/api/*`** only; FastAPI is reached server-side via **`BACKEND_INTERNAL_URL`**, so same-origin CORS to the backend is unnecessary. Add CORS middleware + your own env if you expose FastAPI directly to browsers. | —       | string |
+
+### File Upload Limits
+
+Audio **file uploads** and **recordings** are bounded by backend limits (same knobs the UI enforces for duration and size):
 
 | Variable            | Service | Description                                                              | Default | Type    |
 |---------------------|---------|--------------------------------------------------------------------------|---------|---------|
-| `MAX_AUDIO_MINUTES` | backend | Maximum audio duration accepted (minutes). Requests exceeding this are rejected | `10` | integer |
-| `MAX_FILE_SIZE_MB`  | backend | Maximum audio upload size in megabytes                                   | `25`    | integer |
+| `MAX_AUDIO_MINUTES` | backend | Maximum **audio** duration accepted (minutes); applies to recorder and uploaded files | `10` | integer |
+| `MAX_FILE_SIZE_MB`  | backend | Maximum upload size in megabytes (multipart audio)                       | `25`    | integer |
 
 ### Server Configuration
 
