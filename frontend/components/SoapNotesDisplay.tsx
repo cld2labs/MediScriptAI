@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,13 +23,6 @@ export function SoapNotesDisplay({ soapNotes, onUpdate }: SoapNotesDisplayProps)
   const [editedNotes, setEditedNotes] = useState<SoapNotes>(soapNotes);
   const [symptomsDraftText, setSymptomsDraftText] = useState(soapNotes.symptoms.join("\n"));
 
-  useEffect(() => {
-    if (!isEditing) {
-      setEditedNotes(soapNotes);
-      setSymptomsDraftText(soapNotes.symptoms.join("\n"));
-    }
-  }, [isEditing, soapNotes]);
-
   const canEdit = typeof onUpdate === "function";
   const { chiefComplaint, symptoms, assessment, recommendation } = isEditing
     ? editedNotes
@@ -48,7 +41,11 @@ export function SoapNotesDisplay({ soapNotes, onUpdate }: SoapNotesDisplayProps)
             type="button"
             size="sm"
             variant="ghost"
-            onClick={() => setIsEditing(true)}
+            onClick={() => {
+              setEditedNotes(soapNotes);
+              setSymptomsDraftText(soapNotes.symptoms.join("\n"));
+              setIsEditing(true);
+            }}
             className="gap-2"
           >
             <Pencil className="size-4" />
