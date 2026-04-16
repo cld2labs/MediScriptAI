@@ -46,8 +46,12 @@ export function AudioInput({ onProcessAudio }: AudioInputProps) {
 
   // Auto-stop at 10 minutes
   useEffect(() => {
-    if (isRecording && elapsedSeconds >= MAX_RECORDING_SECONDS) {
-      mediaRecorderRef.current?.state === "recording" && mediaRecorderRef.current.stop();
+    if (
+      isRecording &&
+      elapsedSeconds >= MAX_RECORDING_SECONDS &&
+      mediaRecorderRef.current?.state === "recording"
+    ) {
+      mediaRecorderRef.current.stop();
     }
   }, [isRecording, elapsedSeconds]);
 

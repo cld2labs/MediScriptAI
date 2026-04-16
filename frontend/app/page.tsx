@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Image from "next/image";
 import { Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -96,7 +97,7 @@ export default function Home() {
               used for medical decision-making.
             </div>
           </div>
-          <img
+          <Image
             src="/logo.png"
             alt="Cloud2 Labs"
             width={140}
